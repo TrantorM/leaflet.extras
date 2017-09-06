@@ -9,7 +9,7 @@ var _ = {
 // valueProperty can be a simple property name or
 // a function that accepts a feature and returns a value.
 function getValue(feature, valueProperty) {
-  return (typeof valueProperty === 'function' ? 
+  return (typeof valueProperty === 'function' ?
     valueProperty(feature) : feature.properties[valueProperty]);
 }
 
@@ -138,8 +138,8 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     // we haven't called setGeoJSON yet
     L.GeoJSON.prototype.initialize.call(self, null,
       _.extend(self._options,{style: styleFunction(this)}));
-    
-    // call setGeoJSON in case geojson was provided 
+
+    // call setGeoJSON in case geojson was provided
     // else it will have to be called manually later.
     if(geojson) {
       self.setGeoJSON(geojson);
@@ -168,10 +168,53 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     }
     L.LayerGroup.prototype.onRemove.call(self, map);
   },
+  restyleGeoJSON: function(propertyName) {
+    var self = this;
+    // propertyName could also be a function (formula):
+    self._options.valueProperty = propertyName;
+
+    // Calculate Limits:
+    var features = $.map(self._layers, function(value, index) {
+        return [value.feature];
+    });
+    var values = features.map(function (feature) {
+      return getValue(feature, self._options.valueProperty);
+    });
+    //console.log(values);
+    //
+    // Notes that our limits array has 1 more element than our colors arrary
+    // this is because the limits denote a range and colors correspond to the range.
+    // So if your limits are [0, 10, 20, 30], you'll have 3 colors one for each range 0-9, 10-19, 20-30
+    self._limits = chroma.limits(values, self._options.mode, self._options.steps)
+
+    //_.extend(self._options,{style: styleFunction(this)});
+
+    self.eachLayer(function (layer) {
+      // determine corresponding color for each polygon object:
+      var style = {};
+      var featureValue = getValue(layer.feature, self._options.valueProperty);
+
+      if (!isNaN(featureValue)) {
+        // Find the bucket/step/limit that self value is less than and give it that color
+        // skip the first value of the limits that's the min value of our range.
+        var upperLimit;
+        for (var i = 1; i < self._limits.length; i++) {
+          upperLimit = i === (self._limits.length-1) ? (self._limits[i] + 1) : self._limits[i];
+          if (featureValue < upperLimit) {
+            style.fillColor = self._colors[i-1];
+            break;
+          }
+        }
+      }
+      layer.setStyle({
+        fillColor: style.fillColor
+      });
+    });
+  },
   setGeoJSON: function(geojson) {
     var self = this;
 		var features = L.Util.isArray(geojson) ? geojson : geojson.features;
-    
+
     var values = features.map(function (feature) {
       return getValue(feature, self._options.valueProperty);
     });
@@ -184,7 +227,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     // Add the geojson to L.GeoJSON object so that our geometries are initialized.
     L.GeoJSON.prototype.addData.call(self, geojson);
 
-    
+
     // Calculate legend items and add legend if needed
     if(self._legend) {
 
@@ -210,7 +253,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
           from = self._limits[i];
           // Slightly increase the last value so that we can use from >= featureValue < to
           to = i === (self._limits.length-2) ? (self._limits[i+1] + 1) : self._limits[i+1];
-          
+
           span = document.createElement("span");
           span.classList.add("legendItem");
           span.id = L.stamp(span); // unique id for each legend item.
@@ -239,7 +282,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
             self.eachLayer(function (layer) {
               var featureValue = getValue(layer.feature, self._options.valueProperty);
               if (featureValue >= from  && featureValue < to) {
-                layer._legendItemId = span.id; 
+                layer._legendItemId = span.id;
                 if(!layer._highlightLegendItem) {
                   layer._highlightLegendItem = true;
                   layer.on({
@@ -276,7 +319,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
               var span = event.currentTarget,
                 from = span.dataset.from,
                 to = span.dataset.to;
-              
+
               span.style['font-weight'] = 'normal';
 
               self.eachLayer(function (layer) {
