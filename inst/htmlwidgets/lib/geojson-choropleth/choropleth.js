@@ -483,6 +483,17 @@ function getValue(feature, valueProperty) {
     valueProperty(feature) : feature.properties[valueProperty]);
 }
 
+// fillOpacity treatment
+function getFillOpacity(feature,fillOpacityFunction) {
+  var fillOpacity;
+  if (typeof fillOpacityFunction === 'function' || typeof fillOpacityFunction === 'string') {
+    fillOpacity = getValue(feature, fillOpacityFunction);
+  } else if (typeof fillOpacityFunction === 'number') {fillOpacity = fillOpacityFunction;}
+  //else {fillOpacity = layer.options.fillOpacity;}
+  else {fillOpacity = fillOpacityFunction;}
+  return fillOpacity;
+}
+
 // returns a function that will set the color for each polygon
 function styleFunction(self) {
   return function styleFeature(feature) {
@@ -501,6 +512,12 @@ function styleFunction(self) {
           break;
         }
       }
+    }
+
+    // fillOpacity treatment
+    //var featureOpacity = getValue(feature, self._options.fillOpacityProperty);
+    if (typeof self._options.fillOpacityProperty !=='undefined') {
+      style.fillOpacity = getFillOpacity(feature, self._options.fillOpacityProperty);
     }
 
     // Return self style, but include the user-defined style if it was passed
@@ -529,6 +546,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     // See https://gka.github.io/chroma.js/ for details
     _.defaults(options, {
       valueProperty: 'value',
+      fillOpacityProperty: 'value',
       scale: ['white', 'red'],
       steps: 5,
       mode: 'q',
@@ -638,10 +656,11 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     }
     L.LayerGroup.prototype.onRemove.call(self, map);
   },
-  restyleGeoJSON: function(propertyName) {
+  restyleGeoJSON: function(valuePropertyFunction,fillOpacityFunction) {
     var self = this;
-    // propertyName could also be a function (formula):
-    self._options.valueProperty = propertyName;
+    // update self._options, valuePropertyFunction could be just the property name, but also a function (formula):
+    self._options.valueProperty = valuePropertyFunction;
+    self._options.fillOpacityProperty = fillOpacityFunction;
 
     // Calculate Limits:
     var features = $.map(self._layers, function(value, index) {
@@ -650,7 +669,6 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     var values = features.map(function (feature) {
       return getValue(feature, self._options.valueProperty);
     });
-    //console.log(values);
     //
     // Notes that our limits array has 1 more element than our colors arrary
     // this is because the limits denote a range and colors correspond to the range.
@@ -676,10 +694,15 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
           }
         }
       }
+
       layer.setStyle({
-        fillColor: style.fillColor
+        fillColor: style.fillColor,
+        fillOpacity: getFillOpacity(layer.feature,self._options.fillOpacityProperty)
       });
+      //console.log(layer);
     });
+    //self._legend.resetStyle = self.getResetStyle(style, highlightStyle);
+    //console.log(self);
   },
   setGeoJSON: function(geojson) {
     var self = this;
@@ -699,6 +722,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
 
 
     // Calculate legend items and add legend if needed
+    console.log(self._legend);
     if(self._legend) {
 
       var legendTitle = self._legend.title,
@@ -795,6 +819,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
               self.eachLayer(function (layer) {
 
                 var featureValue = getValue(layer.feature, self._options.valueProperty);
+                resetStyle.fillOpacity = getFillOpacity(layer.feature, self._options.fillOpacityProperty);
 
                 if(span.id === layer._legendItemId) {
                     if(!$.isEmptyObject(resetStyle)) {
@@ -822,6 +847,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
 });
 
 L.choropleth = module.exports = function (geojson, options, legendOptions) {
+  console.log(options)
 	return new L.GeoJSONChoropleth(geojson, options, legendOptions);
 };
 
