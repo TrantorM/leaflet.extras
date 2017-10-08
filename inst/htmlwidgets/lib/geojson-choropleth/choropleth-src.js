@@ -42,6 +42,9 @@ function styleFunction(self) {
           break;
         }
       }
+    } else {
+      // no valid valueProperty:
+      style.fillColor='#000000';
     }
 
     // fillOpacity treatment
@@ -62,11 +65,50 @@ function styleFunction(self) {
   };
 }
 
+function joinData(features, data, key_x, key_y) {
+  var byKey = {};
+
+  if (key_x !== 'id') {
+    // key_x is a property.
+    // Rearrange features so that instead of being a big array, it's an object that is
+    // indexed by the key name, that we'll use to join on.
+    for (var i = 0; i < features.length; i++) {
+      // byKey[features[i].properties[key_x]] = features[i];
+      byKey[features[i]['properties'][key_x]] = features[i];
+    }
+  } else {
+    // key_x isn't a property, it's the id itself.
+    // Rearrange it so that instead of being a big array, it's an object that is
+    // indexed by the key name, that we'll use to join on.
+    for (var i = 0; i < features.length; i++) {
+      byKey[features[i][key_x]] = features[i];
+    }
+  }
+
+  for (i = 0; i < data.length; i++) {
+      // Match the GeoJSON data (byKey) with the tabular data
+      // (data), replacing the GeoJSON properties
+      // with the full data.
+      if (byKey[data[i][key_y]]) {
+        byKey[data[i][key_y]].properties = Object.assign(byKey[data[i][key_y]].properties,data[i]);
+      } else {
+        console.log('The data key '+data[i][key_y]+' does not exist as a key value in the geojson file. The corresponding dataset cannot be joined and is missing in the choropleth map.');
+      }
+  }
+
+  // Create a new GeoJSON array of features and set it
+  // as the new usLayer content.
+  features = [];
+  for (i in byKey) {
+      features.push(byKey[i]);
+  }
+  return features;
+}
 
 // Main Class extends L.GeoJSON
 // geojson can be null, and the data can be set later on using setGeoJSON()
 L.GeoJSONChoropleth = L.GeoJSON.extend({
-  initialize: function(geojson, options, legendOptions) {
+  initialize: function(geojson, options, legendOptions, additionalData) {
 
     var self = this;
 
@@ -160,7 +202,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     // call setGeoJSON in case geojson was provided
     // else it will have to be called manually later.
     if(geojson) {
-      self.setGeoJSON(geojson);
+      self.setGeoJSON(geojson,additionalData);
     }
 
   },
@@ -186,11 +228,12 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     }
     L.LayerGroup.prototype.onRemove.call(self, map);
   },
-  restyleGeoJSON: function(valuePropertyFunction,fillOpacityFunction) {
+  restyleGeoJSON: function(valuePropertyFunction,fillOpacityFunction,labelPropertyFunction,legendTitle) {
     var self = this;
     // update self._options, valuePropertyFunction could be just the property name, but also a function (formula):
     self._options.valueProperty = valuePropertyFunction;
     self._options.fillOpacityProperty = fillOpacityFunction;
+
 
     // Calculate Limits:
     var features = $.map(self._layers, function(value, index) {
@@ -199,6 +242,10 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     var values = features.map(function (feature) {
       return getValue(feature, self._options.valueProperty);
     });
+    // remove NaN's and undefined
+    //values = values.filter(function(item) {return !!item;});
+    console.log('values for limits:');
+    console.log(values);
     //
     // Notes that our limits array has 1 more element than our colors arrary
     // this is because the limits denote a range and colors correspond to the range.
@@ -223,6 +270,9 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
             break;
           }
         }
+      } else {
+        // no valid valueProperty:
+        style.fillColor='#000000';
       }
 
       layer.setStyle({
@@ -230,17 +280,54 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
         fillOpacity: getFillOpacity(layer.feature,self._options.fillOpacityProperty)
       });
       //console.log(layer);
+      if(typeof labelPropertyFunction == 'function') {
+        layer.updateLabelContent(labelPropertyFunction(layer.feature));
+      }
+
     });
     //self._legend.resetStyle = self.getResetStyle(style, highlightStyle);
-    //console.log(self);
+    console.log(self);
+
+    // Calculate legend items and add legend if needed
+    if(self._legend) {
+      console.log(legendTitle)
+      if (legendTitle) {self._legend.title=legendTitle;}
+      console.log(self._legend);
+      var map = self._legend._map;
+      self._legend.removeFrom(map);
+      console.log('map:');
+      console.log(map);
+      console.log(self._legend);
+
+      console.log('before addTo:');
+      console.log(map);
+      console.log(self._legend);
+      self._legend.addTo(map);
+      console.log('after addTo:');
+      console.log(map);
+      console.log(self._legend);
+    }
   },
-  setGeoJSON: function(geojson) {
+  setGeoJSON: function(geojson,additionalData) {
     var self = this;
 		var features = L.Util.isArray(geojson) ? geojson : geojson.features;
+
+    // $.getJSON('https://rawgit.com/TrantorM/topojson-data/master/test.json')
+    //     .done(function(data) {
+    //       data = JSON.parse(data);
+    //       features = joinData(data, features);
+    //     });
+    if (additionalData) {
+      features = joinData(features, additionalData.data, additionalData.key_x, additionalData.key_y);
+    }
 
     var values = features.map(function (feature) {
       return getValue(feature, self._options.valueProperty);
     });
+    // remove NaN's and undefined
+    //values = values.filter(function(item) {return !!item;});
+    console.log('values for limits:');
+    console.log(values);
 
     // Notes that our limits array has 1 more element than our colors arrary
     // this is because the limits denote a range and colors correspond to the range.
@@ -252,7 +339,6 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
 
 
     // Calculate legend items and add legend if needed
-    console.log(self._legend);
     if(self._legend) {
 
       var legendTitle = self._legend.title,
@@ -261,9 +347,28 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
         highlightStyle = self._legend.highlightStyle,
         resetStyle = self._legend.resetStyle;
 
-      self._legend.onAdd = function (map) {
+        function legendEventMouseover(e) {
+          document.getElementById(e.target._legendItemId).style['font-weight'] = 'bold';
+        }
+        function legendEventMouseout(e) {
+           document.getElementById(e.target._legendItemId).style['font-weight'] = 'normal';
+        }
 
+      self._legend.onRemove = function (map) {
+        // remove event listeners.
+        if(!$.isEmptyObject(highlightStyle)) {
+          self.eachLayer(function (layer) {
+            layer._legendItemId=undefined;
+            layer._highlightLegendItem=undefined;
+            layer.off('mouseover',legendEventMouseover);
+            layer.off('mouseout',legendEventMouseout);
+          });
+        }
+      }
+
+      self._legend.onAdd = function (map) {
         var div = L.DomUtil.create('div', 'info legend');
+        legendTitle = self._legend.title;     // redo because if function is called from restyleGeoJSON(), the legendTitle may changed.
         if(legendTitle) {
           var title = document.createElement("div");
           title.style={};
@@ -272,17 +377,21 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
           div.appendChild(title);
         }
 
+        console.log('limits:');
+        console.log(self._limits);
+        var maxLimit=self._limits[self._limits.length-1];
         for (var i = 0; i < (self._limits.length-1); i++) {
-          var from, to, span, color, text;
+          var from, to, legendItemDiv, color, text;
           from = self._limits[i];
+          to = self._limits[i+1];
           // Slightly increase the last value so that we can use from >= featureValue < to
-          to = i === (self._limits.length-2) ? (self._limits[i+1] + 1) : self._limits[i+1];
+          // to = i === (self._limits.length-2) ? (self._limits[i+1]*1.0001) : self._limits[i+1];
 
-          span = document.createElement("span");
-          span.classList.add("legendItem");
-          span.id = L.stamp(span); // unique id for each legend item.
-          span.dataset.from = from;
-          span.dataset.to = to;
+          legendItemDiv = document.createElement("div"); // change from span to div due to left alignement problem of the legend items.
+          legendItemDiv.classList.add("legendItem");
+          legendItemDiv.id = L.stamp(legendItemDiv); // unique id for each legend item.
+          legendItemDiv.dataset.from = from;
+          legendItemDiv.dataset.to = to;
 
           color = document.createElement("i");
           color.style.background = self._colors[i];
@@ -293,35 +402,32 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
             from.toLocaleString(locale, localeOptions) + ' - ' +
               to.toLocaleString(locale, localeOptions) );
           textSpan.appendChild(text);
+          textSpan.style.float="right";
 
-          span.appendChild(color);
-          span.appendChild(textSpan);
+          legendItemDiv.appendChild(color);
+          legendItemDiv.appendChild(textSpan);
+          legendItemDiv.style.height="25px";            // div height must be higher than the color box, otherwise we get an alignement problem of the legend items.
 
-          div.appendChild(span);
-          div.appendChild(document.createElement("br"));
+          div.appendChild(legendItemDiv);
 
 
           if(!$.isEmptyObject(highlightStyle)) {
 
             self.eachLayer(function (layer) {
               var featureValue = getValue(layer.feature, self._options.valueProperty);
-              if (featureValue >= from  && featureValue < to) {
-                layer._legendItemId = span.id;
+              if ((featureValue >= from  && featureValue < to)||(featureValue===maxLimit)) {
+                layer._legendItemId = legendItemDiv.id;
                 if(!layer._highlightLegendItem) {
                   layer._highlightLegendItem = true;
                   layer.on({
-                    mouseover: function(e) {
-                      document.getElementById(e.target._legendItemId).style['font-weight'] = 'bold';
-                    },
-                    mouseout: function(e) {
-                       document.getElementById(e.target._legendItemId).style['font-weight'] = 'normal';
-                    }
+                    mouseover: legendEventMouseover,
+                    mouseout: legendEventMouseout
                   });
                 }
               }
             });
 
-            span.addEventListener("mouseover", function (event) {
+            legendItemDiv.addEventListener("mouseover", function (event) {
               var span = event.currentTarget,
                 from = span.dataset.from,
                 to = span.dataset.to;
@@ -339,7 +445,7 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
                   }
               });
             });
-            span.addEventListener("mouseout", function (event) {
+            legendItemDiv.addEventListener("mouseout", function (event) {
               var span = event.currentTarget,
                 from = span.dataset.from,
                 to = span.dataset.to;
@@ -372,11 +478,15 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
       if(self._legend._map) {
         self._legend.addTo(self._legend._map);
       }
+      console.log(self);
     }
   }
 });
 
-L.choropleth = module.exports = function (geojson, options, legendOptions) {
-  console.log(options)
-	return new L.GeoJSONChoropleth(geojson, options, legendOptions);
+L.choropleth = module.exports = function (geojson, options, legendOptions, additionalData) {
+  console.log('L.choropleth:');
+  console.log(additionalData);
+  console.log(legendOptions);
+  console.log(options);
+  return new L.GeoJSONChoropleth(geojson, options, legendOptions, additionalData);
 };

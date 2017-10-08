@@ -202,7 +202,8 @@ legendOptions <- function(
   position = c('bottomleft', 'bottomright', 'topleft', 'topright'),
   locale = 'en-US',
   numberFormatOptions = list(style = 'decimal',
-                             maximumFractionDigits = 2)
+                             maximumFractionDigits = 2,
+                             minimumFractionDigits = 0)
 ) {
   position <- match.arg(position)
   leaflet::filterNULL(
@@ -213,6 +214,29 @@ legendOptions <- function(
         locale = locale,
         options = numberFormatOptions
       )
+    )
+  )
+}
+
+#' Join additional data (properties) to the geojson in a Choropleth. The additional parameters are to customize the join.
+#' @param data a JSON/CSV URL or file contents in a character vector.
+#' @param key_x Key property of the geojson (geojson key).
+#' @param key_y Key property/Column of the additional dataset to join. If no key_y is declared, the first column of the additional data is used.
+#' @param delimiter Delimiter used in the csv file. If no delimiter is declared, an automatic detection tries to find the delimiter. For auto detection one of the following delimiter must be used: ',', '\\t', ';', '|'. Files with other extensions then csv are not working in the RStudio Viewer.
+#' @export
+#' @rdname omnivore
+additionalData <- function(
+  data = NULL,
+  key_x = 'id',
+  key_y = NULL,
+  delimiter = NULL
+) {
+  leaflet::filterNULL(
+    list(
+      data = data,
+      key_x = key_x,
+      key_y = key_y,
+      delimiter = delimiter
     )
   )
 }
@@ -255,7 +279,8 @@ addGeoJSONChoropleth = function(
   noClip = FALSE,
   pathOptions = leaflet::pathOptions(),
   highlightOptions = NULL,
-  legendOptions = NULL
+  legendOptions = NULL,
+  additionalData = NULL
 ) {
   map$dependencies <- c(map$dependencies, omnivoreDependencies())
   map$dependencies <- c(map$dependencies,
@@ -287,7 +312,7 @@ addGeoJSONChoropleth = function(
     map, leaflet::getMapData(map), 'addGeoJSONChoropleth',
     geojson, layerId, group,
     labelProperty, labelOptions, popupProperty, popupOptions,
-    pathOptions, highlightOptions, legendOptions
+    pathOptions, highlightOptions, legendOptions, additionalData
     )
 }
 

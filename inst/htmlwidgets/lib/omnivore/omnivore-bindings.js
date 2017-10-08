@@ -437,14 +437,51 @@ LeafletWidget.methods.addGPX = function(
   }
 };
 
+function parseData(unparsedData,delimiter) {
+  try {
+    console.log('start json parsing');
+    var parsedData = JSON.parse(unparsedData);
+    if (typeof parsedData === 'object' && parsedData !== null) {
+      return parsedData;
+    }
+  } catch (errJSON) {
+    try {
+      console.log('start csv parsing')
+      console.log(delimiter)
+      console.log(unparsedData.trim())
+      if (delimiter) {
+        console.log('delimiter parsing');
+        parsedData = csv2geojson.dsv.dsv(delimiter).parse(unparsedData.trim());
+      } else {
+        console.log('auto parsing');
+        parsedData = csv2geojson.auto(unparsedData.trim());
+      }
+      if (typeof parsedData === 'object' && parsedData !== null) {
+        // convert number strings to typeof number:
+        parsedData = parsedData.map(function(obj) {
+          for (var key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+              if (!isNaN(obj[key])) {obj[key] = Number(obj[key]);}
+            }
+          }
+          return obj;
+        });
+        return parsedData;
+      }
+      console.log('stop csv parsing')
+    } catch (errCSV) {
+      console.log('Neither json nor csv parsing was successful; JSON parsing error: ' + errJSON + '; CSV parsing error: ' + errCSV)
+    }
+  }
+  return null;
+}
 
 
 LeafletWidget.methods.addGeoJSONChoropleth = function(
   geojson, layerId, group,
   labelProperty, labelOptions, popupProperty, popupOptions,
-  pathOptions, highlightOptions, legendOptions
+  pathOptions, highlightOptions, legendOptions, additionalData
 ) {
-
   var style = pathOptions;
   var highlightStyle = highlightOptions;
   var defaultStyle = getResetStyle(style, highlightStyle);
@@ -457,40 +494,101 @@ LeafletWidget.methods.addGeoJSONChoropleth = function(
   var self = this;
   if(LeafletWidget.utils.isURL(geojson)) {
     $.getJSON(geojson, function(geojsondata){
+      if(LeafletWidget.utils.isURL(additionalData.data)) {
+        // load additional data
+        $.get(additionalData.data).done(function(unparsedData) {
+          console.log('add data loaded');
+          console.log(unparsedData);
+          additionalData.data = parseData(unparsedData,additionalData.delimiter);
+          console.log(additionalData.data);
+          addGeoJSONLayer(
+            self,
+            function getGeoJSONLayer(geoJSONOptions){
+              return L.choropleth(
+                LeafletWidget.utils.getParsedGeoJSON(geojsondata),
+                $.extend(pathOptions, geoJSONOptions), legendOptions, additionalData
+              );
+            },
+            layerId, group,
+            false,
+            null, null,
+            null, null, null,
+            null, null,
+            labelProperty, labelOptions, popupProperty, popupOptions,
+            pathOptions, highlightOptions
+          );
+        });
+      } else {
+        if (additionalData) {
+          // additional data is declared as a string -> parse it
+          additionalData.data = parseData(additionalData.data,additionalData.delimiter);
+        }
+        addGeoJSONLayer(
+          self,
+          function getGeoJSONLayer(geoJSONOptions){
+            return L.choropleth(
+              LeafletWidget.utils.getParsedGeoJSON(geojsondata),
+              $.extend(pathOptions, geoJSONOptions), legendOptions, additionalData
+            );
+          },
+          layerId, group,
+          false,
+          null, null,
+          null, null, null,
+          null, null,
+          labelProperty, labelOptions, popupProperty, popupOptions,
+          pathOptions, highlightOptions
+        );
+      }
+    });
+  } else {
+    if(additionalData && LeafletWidget.utils.isURL(additionalData.data)) {
+      // load additional data throu the web
+      $.get(additionalData.data).done(function(unparsedData) {
+        console.log('add data loaded');
+        console.log(unparsedData);
+        additionalData.data = parseData(unparsedData,additionalData.delimiter);
+        console.log(additionalData.data);
+        addGeoJSONLayer(
+          self,
+          function getGeoJSONLayer(geoJSONOptions){
+            return L.choropleth(
+              LeafletWidget.utils.getParsedGeoJSON(geojson),
+              $.extend(pathOptions, geoJSONOptions), legendOptions, additionalData
+            );
+          },
+          layerId, group,
+          false,
+          null, null,
+          null, null, null,
+          null, null,
+          labelProperty, labelOptions, popupProperty, popupOptions,
+          pathOptions, highlightOptions
+        );
+      });
+    } else {
+      if (additionalData) {
+        // additional data is declared as a string -> parse it
+        additionalData.data = parseData(additionalData.data,additionalData.delimiter);
+      }
       addGeoJSONLayer(
         self,
         function getGeoJSONLayer(geoJSONOptions){
           return L.choropleth(
-            LeafletWidget.utils.getParsedGeoJSON(geojsondata),
-            $.extend(pathOptions, geoJSONOptions), legendOptions);
-        },
-        layerId, group,
-        false,
-        null, null,
-        null, null, null,
-        null, null,
-        labelProperty, labelOptions, popupProperty, popupOptions,
-        pathOptions, highlightOptions
-      );
-    });
-  } else {
-    addGeoJSONLayer(
-      self,
-      function getGeoJSONLayer(geoJSONOptions){
-        return L.choropleth(
-          LeafletWidget.utils.getParsedGeoJSON(geojson),
-          $.extend(pathOptions, geoJSONOptions), legendOptions);
-      },
-      layerId, group,
-      false,
-      null, null,
-      null, null, null,
-      null, null,
-      labelProperty, labelOptions, popupProperty, popupOptions,
-      pathOptions, highlightOptions
-    );
-  }
-};
+            LeafletWidget.utils.getParsedGeoJSON(geojson),
+            $.extend(pathOptions, geoJSONOptions), legendOptions, additionalData);
+          },
+          layerId, group,
+          false,
+          null, null,
+          null, null, null,
+          null, null,
+          labelProperty, labelOptions, popupProperty, popupOptions,
+          pathOptions, highlightOptions
+        );
+      }
+    }
+  };
 
 LeafletWidget.methods.addKMLChoropleth = function(
   kml, layerId, group,
@@ -545,4 +643,3 @@ LeafletWidget.methods.addKMLChoropleth = function(
     );
   }
 };
-
