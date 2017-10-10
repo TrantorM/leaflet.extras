@@ -18,16 +18,17 @@ function getFillOpacity(feature,fillOpacityFunction) {
   var fillOpacity;
   if (typeof fillOpacityFunction === 'function' || typeof fillOpacityFunction === 'string') {
     fillOpacity = getValue(feature, fillOpacityFunction);
-  } else if (typeof fillOpacityFunction === 'number') {fillOpacity = fillOpacityFunction;}
-  //else {fillOpacity = layer.options.fillOpacity;}
-  else {fillOpacity = fillOpacityFunction;}
+  } else if (typeof fillOpacityFunction === 'number') {
+    fillOpacity = fillOpacityFunction;
+  } else {
+    fillOpacity = fillOpacityFunction;
+  }
   return fillOpacity;
 }
 
 // returns a function that will set the color for each polygon
 function styleFunction(self) {
   return function styleFeature(feature) {
-
     var style = {};
     var featureValue = getValue(feature, self._options.valueProperty);
 
@@ -48,7 +49,6 @@ function styleFunction(self) {
     }
 
     // fillOpacity treatment
-    //var featureOpacity = getValue(feature, self._options.fillOpacityProperty);
     if (typeof self._options.fillOpacityProperty !=='undefined') {
       style.fillOpacity = getFillOpacity(feature, self._options.fillOpacityProperty);
     }
@@ -86,9 +86,8 @@ function joinData(features, data, key_x, key_y) {
   }
 
   for (i = 0; i < data.length; i++) {
-      // Match the GeoJSON data (byKey) with the tabular data
-      // (data), replacing the GeoJSON properties
-      // with the full data.
+      // Match the GeoJSON data (byKey) with the corresponding tabular dataset data[i]
+      // (csv or json data). Replace all GeoJSON properties with the data column.
       if (byKey[data[i][key_y]]) {
         byKey[data[i][key_y]].properties = Object.assign(byKey[data[i][key_y]].properties,data[i]);
       } else {
@@ -96,8 +95,7 @@ function joinData(features, data, key_x, key_y) {
       }
   }
 
-  // Create a new GeoJSON array of features and set it
-  // as the new usLayer content.
+  // return array of features
   features = [];
   for (i in byKey) {
       features.push(byKey[i]);
@@ -156,10 +154,10 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     // Check if we need to create a legend
     if(!$.isEmptyObject(legendOptions)) {
 
-      var formatOptions = {}, // formatting of number range
-        legendTitle = null, // title for the legend
-        highlightStyle = null, // style used to highlight matching polygons on hover
-        resetStyle = null; // style to reset back to, can be null
+      var formatOptions = {},   // formatting of number range
+        legendTitle = null,     // title for the legend
+        highlightStyle = null,  // style used to highlight matching polygons on hover
+        resetStyle = null;      // style to reset back to, can be null
       if(legendOptions.formatOptions) {
         formatOptions = legendOptions.formatOptions;
         delete legendOptions.formatOptions;
@@ -230,93 +228,51 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
   },
   restyleGeoJSON: function(valuePropertyFunction,fillOpacityFunction,labelPropertyFunction,legendTitle) {
     var self = this;
+    console.log(self);
     // update self._options, valuePropertyFunction could be just the property name, but also a function (formula):
     self._options.valueProperty = valuePropertyFunction;
     self._options.fillOpacityProperty = fillOpacityFunction;
 
-
-    // Calculate Limits:
-    var features = $.map(self._layers, function(value, index) {
-        return [value.feature];
+    // push the values of all features in an array and calculate the Limits:
+    var values=[];
+    self.eachLayer(function (layer) {
+      values.push(getValue(layer.feature, valuePropertyFunction));     //maybe store to layer.defaultOptions.fillOpacity?
     });
-    var values = features.map(function (feature) {
-      return getValue(feature, self._options.valueProperty);
-    });
-    // remove NaN's and undefined
-    //values = values.filter(function(item) {return !!item;});
     console.log('values for limits:');
     console.log(values);
-    //
+
     // Notes that our limits array has 1 more element than our colors arrary
     // this is because the limits denote a range and colors correspond to the range.
     // So if your limits are [0, 10, 20, 30], you'll have 3 colors one for each range 0-9, 10-19, 20-30
+    var t0 = performance.now();
     self._limits = chroma.limits(values, self._options.mode, self._options.steps)
-
-    //_.extend(self._options,{style: styleFunction(this)});
+    var t1 = performance.now();
+    console.log('chroma.limits took ' + (t1 - t0) + ' milliseconds.');
 
     self.eachLayer(function (layer) {
-      // determine corresponding color for each polygon object:
-      var style = {};
-      var featureValue = getValue(layer.feature, self._options.valueProperty);
+      layer.setStyle(self._options.style(layer.feature));
 
-      if (!isNaN(featureValue)) {
-        // Find the bucket/step/limit that self value is less than and give it that color
-        // skip the first value of the limits that's the min value of our range.
-        var upperLimit;
-        for (var i = 1; i < self._limits.length; i++) {
-          upperLimit = i === (self._limits.length-1) ? (self._limits[i] + 1) : self._limits[i];
-          if (featureValue < upperLimit) {
-            style.fillColor = self._colors[i-1];
-            break;
-          }
-        }
-      } else {
-        // no valid valueProperty:
-        style.fillColor='#000000';
-      }
-
-      layer.setStyle({
-        fillColor: style.fillColor,
-        fillOpacity: getFillOpacity(layer.feature,self._options.fillOpacityProperty)
-      });
-      //console.log(layer);
       if(typeof labelPropertyFunction == 'function') {
         layer.updateLabelContent(labelPropertyFunction(layer.feature));
       }
-
     });
-    //self._legend.resetStyle = self.getResetStyle(style, highlightStyle);
-    console.log(self);
 
-    // Calculate legend items and add legend if needed
+    // recalculate legend items if legend enabled
     if(self._legend) {
-      console.log(legendTitle)
       if (legendTitle) {self._legend.title=legendTitle;}
-      console.log(self._legend);
       var map = self._legend._map;
       self._legend.removeFrom(map);
-      console.log('map:');
-      console.log(map);
-      console.log(self._legend);
 
-      console.log('before addTo:');
-      console.log(map);
-      console.log(self._legend);
+      var t0 = performance.now();
       self._legend.addTo(map);
-      console.log('after addTo:');
-      console.log(map);
-      console.log(self._legend);
+      var t1 = performance.now();
+      console.log('add new legend took ' + (t1 - t0) + ' milliseconds.');
     }
   },
   setGeoJSON: function(geojson,additionalData) {
     var self = this;
 		var features = L.Util.isArray(geojson) ? geojson : geojson.features;
 
-    // $.getJSON('https://rawgit.com/TrantorM/topojson-data/master/test.json')
-    //     .done(function(data) {
-    //       data = JSON.parse(data);
-    //       features = joinData(data, features);
-    //     });
     if (additionalData) {
       features = joinData(features, additionalData.data, additionalData.key_x, additionalData.key_y);
     }
@@ -324,21 +280,17 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
     var values = features.map(function (feature) {
       return getValue(feature, self._options.valueProperty);
     });
-    // remove NaN's and undefined
-    //values = values.filter(function(item) {return !!item;});
-    console.log('values for limits:');
-    console.log(values);
 
     // Notes that our limits array has 1 more element than our colors arrary
     // this is because the limits denote a range and colors correspond to the range.
     // So if your limits are [0, 10, 20, 30], you'll have 3 colors one for each range 0-9, 10-19, 20-30
-    self._limits = chroma.limits(values, self._options.mode, self._options.steps)
-    //
+    self._limits = chroma.limits(values, self._options.mode, self._options.steps);
+
     // Add the geojson to L.GeoJSON object so that our geometries are initialized.
     L.GeoJSON.prototype.addData.call(self, geojson);
 
 
-    // Calculate legend items and add legend if needed
+    // create legend if enabled:
     if(self._legend) {
 
       var legendTitle = self._legend.title,
@@ -354,19 +306,22 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
            document.getElementById(e.target._legendItemId).style['font-weight'] = 'normal';
         }
 
+      // function how to clean the legend, while removing from the map:
       self._legend.onRemove = function (map) {
         // remove event listeners.
         if(!$.isEmptyObject(highlightStyle)) {
           self.eachLayer(function (layer) {
             layer._legendItemId=undefined;
             layer._highlightLegendItem=undefined;
-            layer.off('mouseover',legendEventMouseover);
-            layer.off('mouseout',legendEventMouseout);
+            //layer.off('mouseover',legendEventMouseover);
+            //layer.off('mouseout',legendEventMouseout);
           });
         }
       }
 
+      // function how to build/rebuild the legend, while adding to the map:
       self._legend.onAdd = function (map) {
+        // create legend carrier with title:
         var div = L.DomUtil.create('div', 'info legend');
         legendTitle = self._legend.title;     // redo because if function is called from restyleGeoJSON(), the legendTitle may changed.
         if(legendTitle) {
@@ -377,19 +332,15 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
           div.appendChild(title);
         }
 
-        console.log('limits:');
-        console.log(self._limits);
+        // for each color create a legend item with a color box and the corresponding text. Also declare the mouse events which correspond to that legend item (color).
         var maxLimit=self._limits[self._limits.length-1];
         for (var i = 0; i < (self._limits.length-1); i++) {
           var from, to, legendItemDiv, color, text;
           from = self._limits[i];
           to = self._limits[i+1];
-          // Slightly increase the last value so that we can use from >= featureValue < to
-          // to = i === (self._limits.length-2) ? (self._limits[i+1]*1.0001) : self._limits[i+1];
-
-          legendItemDiv = document.createElement("div"); // change from span to div due to left alignement problem of the legend items.
+          legendItemDiv = document.createElement("div");    // change from span to div due to left alignement problem of the legend items.
           legendItemDiv.classList.add("legendItem");
-          legendItemDiv.id = L.stamp(legendItemDiv); // unique id for each legend item.
+          legendItemDiv.id = L.stamp(legendItemDiv);        // unique id for each legend item.
           legendItemDiv.dataset.from = from;
           legendItemDiv.dataset.to = to;
 
@@ -406,37 +357,26 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
 
           legendItemDiv.appendChild(color);
           legendItemDiv.appendChild(textSpan);
-          legendItemDiv.style.height="25px";            // div height must be higher than the color box, otherwise we get an alignement problem of the legend items.
+          legendItemDiv.style.height="25px";                // div height must be higher than the color box, otherwise we get an alignement problem of the legend items.
 
           div.appendChild(legendItemDiv);
 
-
+          // add highlight mouse events (if enabled):
           if(!$.isEmptyObject(highlightStyle)) {
 
+            // To each feature with this color determine the legendItemDiv.id. The corresponding mouse events will be added later.
             self.eachLayer(function (layer) {
               var featureValue = getValue(layer.feature, self._options.valueProperty);
               if ((featureValue >= from  && featureValue < to)||(featureValue===maxLimit)) {
                 layer._legendItemId = legendItemDiv.id;
-                if(!layer._highlightLegendItem) {
-                  layer._highlightLegendItem = true;
-                  layer.on({
-                    mouseover: legendEventMouseover,
-                    mouseout: legendEventMouseout
-                  });
-                }
               }
             });
 
             legendItemDiv.addEventListener("mouseover", function (event) {
-              var span = event.currentTarget,
-                from = span.dataset.from,
-                to = span.dataset.to;
-
+              var span = event.currentTarget;
               span.style['font-weight'] = 'bold';
 
               self.eachLayer(function (layer) {
-                var featureValue = getValue(layer.feature, self._options.valueProperty);
-
                 if(span.id === layer._legendItemId) {
                     layer.setStyle(highlightStyle);
                     if(highlightStyle.bringToFront) {
@@ -445,20 +385,15 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
                   }
               });
             });
-            legendItemDiv.addEventListener("mouseout", function (event) {
-              var span = event.currentTarget,
-                from = span.dataset.from,
-                to = span.dataset.to;
 
+            legendItemDiv.addEventListener("mouseout", function (event) {
+              var span = event.currentTarget;
               span.style['font-weight'] = 'normal';
 
               self.eachLayer(function (layer) {
-
-                var featureValue = getValue(layer.feature, self._options.valueProperty);
-                resetStyle.fillOpacity = getFillOpacity(layer.feature, self._options.fillOpacityProperty);
-
                 if(span.id === layer._legendItemId) {
                     if(!$.isEmptyObject(resetStyle)) {
+                      resetStyle.fillOpacity = getFillOpacity(layer.feature, self._options.fillOpacityProperty);
                       layer.setStyle(resetStyle);
                     } else {
                       self.resetStyle(layer);
@@ -470,6 +405,25 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
               });
             });
           }
+        } // end of for
+
+        // add highlight mouse event on each layer to highlight the corresponding legend text bold:
+        if(!$.isEmptyObject(highlightStyle)) {
+          self.eachLayer(function (layer) {
+            if(layer._legendItemId) {
+              // overwrite mouse event for layers with a valid _legendItemId
+              layer.on({
+                mouseover: legendEventMouseover,
+                mouseout: legendEventMouseout
+              });
+            } else {
+              // deactivate mouse event for all other layers
+              layer.off({
+                mouseover: legendEventMouseover,
+                mouseout: legendEventMouseout
+              });
+            }
+          });
         }
 
         return div;
@@ -478,7 +432,6 @@ L.GeoJSONChoropleth = L.GeoJSON.extend({
       if(self._legend._map) {
         self._legend.addTo(self._legend._map);
       }
-      console.log(self);
     }
   }
 });

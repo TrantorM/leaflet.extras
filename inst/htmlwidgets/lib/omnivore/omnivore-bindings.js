@@ -118,6 +118,9 @@ function addGeoJSONLayer(
   }
   function resetFeature(e){
     var layer = e.target;
+    if (typeof style.style == 'function') {
+      $.extend(defaultStyle,style.style(layer.feature));
+    }
     layer.setStyle(defaultStyle);
     if(highlightStyle.sendToBack) {
       layer.bringToBack();
